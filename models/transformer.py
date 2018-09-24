@@ -75,9 +75,26 @@ def _ffn_layer_sigmoid(inputs, hidden_size, output_size, keep_prob=None,
 
         return output
 
+def _ffn_layer_combine(inputs, hidden_size, output_size, keep_prob=None,
+              dtype=None, scope=None):
+    with tf.variable_scope(scope, default_name="ffn_layer_2", values=[inputs],
+                           dtype=dtype):
+        with tf.variable_scope("input_layer"):
+            hidden = layers.nn.linear(inputs, hidden_size, True, True)
+            hidden = tf.nn.sigmoid(hidden)
+
+        if keep_prob and keep_prob < 1.0:
+            hidden = tf.nn.dropout(hidden, keep_prob)
+
+        with tf.variable_scope("output_layer"):
+            output = layers.nn.linear(hidden, output_size, True, True)
+
+        return output
+
 
 def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
     output_per_layer = 0
+    l0=l1=l2=l3=l4=l5=0
     with tf.variable_scope(scope, default_name="encoder", dtype=dtype,
                            values=[inputs, bias]):
         x = inputs
@@ -107,6 +124,52 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     )
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
+                if layer == 0:
+                    l0 = x
+                elif layer == 1:
+                    with tf.variable_scope("feed_forward_1"):
+                        y = _ffn_layer_combine(
+                            _layer_process(tf.concat([l0, x], axis = 2), params.layer_preprocess),
+                            params.filter_size,
+                            params.hidden_size,
+                            1.0 - 1*params.relu_dropout,
+                        )
+                        x = _residual_fn(x, l0, 1.0 - params.residual_dropout)
+                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(x, params.layer_postprocess)
+                    l1 = x
+                elif layer == 2:
+                    l2 = x
+                elif layer == 3:
+                    with tf.variable_scope("feed_forward_3"):
+                        y = _ffn_layer_combine(
+                            _layer_process(tf.concat([l1, l2, x], axis = 2), params.layer_preprocess),
+                            params.filter_size,
+                            params.hidden_size,
+                            1.0 - 1*params.relu_dropout,
+                        )
+                        x = _residual_fn(x, l1, 1.0 - params.residual_dropout)
+                        x = _residual_fn(x, l2, 1.0 - params.residual_dropout)
+                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(x, params.layer_postprocess)
+                    l3 = x
+                elif layer == 4:
+                    l4 = x
+                elif layer == 5:
+                    with tf.variable_scope("feed_forward_5"):
+                        y = _ffn_layer_combine(
+                            _layer_process(tf.concat([l3, l4, x], axis = 2), params.layer_preprocess),
+                            params.filter_size,
+                            params.hidden_size,
+                            1.0 - 1*params.relu_dropout,
+                        )
+                        x = _residual_fn(x, l3, 1.0 - params.residual_dropout)
+                        x = _residual_fn(x, l4, 1.0 - params.residual_dropout)
+                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(x, params.layer_postprocess)
+                    l5 = x
+                
+
             if layer == 0:
                 output_per_layer = tf.expand_dims(x, 2) #[batch, length, 1, hidden]
             else:
@@ -207,6 +270,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
 def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                         dtype=None, scope=None):
     output_per_layer = 0
+    l0=l1=l2=l3=l4=l5=0
     with tf.variable_scope(scope, default_name="decoder", dtype=dtype,
                            values=[inputs, memory, bias, mem_bias]):
         x = inputs
@@ -260,6 +324,51 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     )
                     x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                     x = _layer_process(x, params.layer_postprocess)
+                if layer == 0:
+                    l0 = x
+                elif layer == 1:
+                    with tf.variable_scope("feed_forward_1"):
+                        y = _ffn_layer_combine(
+                            _layer_process(tf.concat([l0, x], axis = 2), params.layer_preprocess),
+                            params.filter_size,
+                            params.hidden_size,
+                            1.0 - 1*params.relu_dropout,
+                        )
+                        x = _residual_fn(x, l0, 1.0 - params.residual_dropout)
+                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(x, params.layer_postprocess)
+                    l1 = x
+                elif layer == 2:
+                    l2 = x
+                elif layer == 3:
+                    with tf.variable_scope("feed_forward_3"):
+                        y = _ffn_layer_combine(
+                            _layer_process(tf.concat([l1, l2, x], axis = 2), params.layer_preprocess),
+                            params.filter_size,
+                            params.hidden_size,
+                            1.0 - 1*params.relu_dropout,
+                        )
+                        x = _residual_fn(x, l1, 1.0 - params.residual_dropout)
+                        x = _residual_fn(x, l2, 1.0 - params.residual_dropout)
+                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(x, params.layer_postprocess)
+                    l3 = x
+                elif layer == 4:
+                    l4 = x
+                elif layer == 5:
+                    with tf.variable_scope("feed_forward_5"):
+                        y = _ffn_layer_combine(
+                            _layer_process(tf.concat([l3, l4, x], axis = 2), params.layer_preprocess),
+                            params.filter_size,
+                            params.hidden_size,
+                            1.0 - 1*params.relu_dropout,
+                        )
+                        x = _residual_fn(x, l3, 1.0 - params.residual_dropout)
+                        x = _residual_fn(x, l4, 1.0 - params.residual_dropout)
+                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(x, params.layer_postprocess)
+                    l5 = x
+                
             if layer == 0:
                 output_per_layer = tf.expand_dims(x, 2) #[batch, length, 1, hidden]
             else:
