@@ -77,7 +77,7 @@ def _ffn_layer_sigmoid(inputs, hidden_size, output_size, keep_prob=None,
 
 def _ffn_layer_combine(inputs, hidden_size, output_size, keep_prob=None,
               dtype=None, scope=None):
-    with tf.variable_scope(scope, default_name="ffn_layer_2", values=[inputs],
+    with tf.variable_scope(scope, default_name="ffn_layer", values=[inputs],
                            dtype=dtype):
         with tf.variable_scope("input_layer"):
             hidden = layers.nn.linear(inputs, hidden_size, True, True)
