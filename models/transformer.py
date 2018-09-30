@@ -463,6 +463,9 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
 
         outputs = _layer_process(v, params.layer_preprocess)
 
+        if state is not None:
+            return outputs, next_state
+
         return outputs
 
 def encoding_graph(features, mode, params):
