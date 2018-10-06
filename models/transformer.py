@@ -198,7 +198,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
             vote_in = _ffn_layer(
                 _layer_process(tf.reshape(output_per_layer, [tf.shape(output_per_layer)[0], tf.shape(output_per_layer)[1], params.hidden_size * 3])
                 , params.layer_preprocess),
-                3*params.hidden_size,
+                2*params.hidden_size,
                 3*params.hidden_size,
                 1.0 - params.relu_dropout,
             )
@@ -398,7 +398,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
             vote_in = _ffn_layer(
                 _layer_process(tf.reshape(output_per_layer, [tf.shape(output_per_layer)[0], tf.shape(output_per_layer)[1], params.hidden_size * 3])
                 , params.layer_preprocess),
-                3*params.hidden_size,
+                2*params.hidden_size,
                 3*params.hidden_size,
                 1.0 - params.relu_dropout,
             )
