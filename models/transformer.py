@@ -26,6 +26,15 @@ def _residual_fn(x, y, keep_prob=None):
         y = tf.nn.dropout(y, keep_prob)
     return x + y
 
+def _ffn_layer_linear(inputs, hidden_size, output_size, keep_prob=None,
+              dtype=None, scope=None):
+    with tf.variable_scope(scope, default_name="ffn_layer", values=[inputs],
+                           dtype=dtype):
+        with tf.variable_scope("output_layer"):
+            output = layers.nn.linear(inputs, output_size, True, True)
+
+        return output
+
 
 def _ffn_layer(inputs, hidden_size, output_size, keep_prob=None,
               dtype=None, scope=None):
@@ -195,7 +204,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
             #activation_in = tf.reshape(activation_in, [tf.shape(x)[0], tf.shape(x)[1], 3, 1])
             activation_in = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, 1])
 
-            vote_in = _ffn_layer(
+            vote_in = _ffn_layer_linear(
                 _layer_process(tf.reshape(output_per_layer, [tf.shape(output_per_layer)[0], tf.shape(output_per_layer)[1], params.hidden_size * 3])
                 , params.layer_preprocess),
                 2*params.hidden_size,
@@ -395,7 +404,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
             #activation_in = tf.reshape(activation_in, [tf.shape(x)[0], tf.shape(x)[1], 3, 1])
             activation_in = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, 1])
 
-            vote_in = _ffn_layer(
+            vote_in = _ffn_layer_linear(
                 _layer_process(tf.reshape(output_per_layer, [tf.shape(output_per_layer)[0], tf.shape(output_per_layer)[1], params.hidden_size * 3])
                 , params.layer_preprocess),
                 2*params.hidden_size,
