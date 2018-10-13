@@ -137,12 +137,73 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     l0 = x
                 elif layer == 1:
                     with tf.variable_scope("feed_forward_1"):
-                        y = _ffn_layer_combine(
-                            _layer_process(tf.concat([l0, x], axis = 2), params.layer_preprocess),
-                            params.filter_size,
-                            params.hidden_size,
-                            1.0 - 1*params.relu_dropout,
-                        )
+                        with tf.variable_scope("dynamic_routing"):
+                            num_capsules = 512
+                            activation_in = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 2, 1])
+
+                            vote_in = _ffn_layer(
+                                _layer_process(tf.concat([l0, x], axis = 2), params.layer_preprocess),
+                                , params.layer_preprocess),
+                                2*params.hidden_size,
+                                2*params.hidden_size,
+                                1.0 - params.relu_dropout,
+                            )
+
+                            vote_in = tf.reshape(vote_in, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules, int(params.hidden_size/num_capsules)])
+
+                            r = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules]) / num_capsules
+
+                            initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
+                            beta_v = tf.get_variable(
+                                      name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
+                                      initializer=initializer
+                                    )
+                            beta_a = tf.get_variable(
+                                      name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
+                                      initializer=initializer
+                                    )
+
+                            routing_iter = 3
+                            epsilon = 1e-9
+
+                            it_min = 1.0
+                            it_max = min(routing_iter, 3.0)
+                            #activation_in [?, ?, 6, 1], vote_in [?, ?, 6, num, 512], r [?, ?, 6, num]
+                            # beta_v [1, 1, 1, num, 1] beta_a [1, 1, 1, num, 1]
+
+                            for i in range(routing_iter):
+                                #M step
+                                inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
+
+                                r = r * (activation_in + epsilon)
+                                r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules, 1]) #[?,?,6,num]
+                                r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, num]
+                                r_sum = tf.reshape(r_sum, [tf.shape(x)[0], tf.shape(x)[1], 1, num_capsules, 1]) #[?, ?, 1, num, 1]
+
+                                o_mean = tf.reduce_sum( tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules, 1]) * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+                                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+
+                                o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, num, 512] * [?, ?, 1, num, 1] = [?, ?, 1, num, 512]
+
+                                o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
+                                
+                                #unnecessary
+                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+
+                                if i < routing_iter - 1:
+                                    #E step
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
+                                    o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
+                                    zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
+                                    r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,6,num,1] 
+                                    r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules]) #[?,?,6,num]
+
+                            y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
                         x = _residual_fn(x, l0, 1.0 - params.residual_dropout)
                         x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                         x = _layer_process(x, params.layer_postprocess)
@@ -151,12 +212,73 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     l2 = x
                 elif layer == 3:
                     with tf.variable_scope("feed_forward_3"):
-                        y = _ffn_layer_combine(
-                            _layer_process(tf.concat([l1, l2, x], axis = 2), params.layer_preprocess),
-                            params.filter_size,
-                            params.hidden_size,
-                            1.0 - 1*params.relu_dropout,
-                        )
+                        with tf.variable_scope("dynamic_routing"):
+                            num_capsules = 512
+                            activation_in = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, 1])
+
+                            vote_in = _ffn_layer(
+                                _layer_process(tf.concat([l1, l2, x], axis = 2), params.layer_preprocess),
+                                , params.layer_preprocess),
+                                3*params.hidden_size,
+                                3*params.hidden_size,
+                                1.0 - params.relu_dropout,
+                            )
+
+                            vote_in = tf.reshape(vote_in, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, int(params.hidden_size/num_capsules)])
+
+                            r = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) / num_capsules
+
+                            initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
+                            beta_v = tf.get_variable(
+                                      name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
+                                      initializer=initializer
+                                    )
+                            beta_a = tf.get_variable(
+                                      name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
+                                      initializer=initializer
+                                    )
+
+                            routing_iter = 3
+                            epsilon = 1e-9
+
+                            it_min = 1.0
+                            it_max = min(routing_iter, 3.0)
+                            #activation_in [?, ?, 6, 1], vote_in [?, ?, 6, num, 512], r [?, ?, 6, num]
+                            # beta_v [1, 1, 1, num, 1] beta_a [1, 1, 1, num, 1]
+
+                            for i in range(routing_iter):
+                                #M step
+                                inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
+
+                                r = r * (activation_in + epsilon)
+                                r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) #[?,?,6,num]
+                                r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, num]
+                                r_sum = tf.reshape(r_sum, [tf.shape(x)[0], tf.shape(x)[1], 1, num_capsules, 1]) #[?, ?, 1, num, 1]
+
+                                o_mean = tf.reduce_sum( tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+                                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+
+                                o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, num, 512] * [?, ?, 1, num, 1] = [?, ?, 1, num, 512]
+
+                                o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
+                                
+                                #unnecessary
+                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+
+                                if i < routing_iter - 1:
+                                    #E step
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
+                                    o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
+                                    zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
+                                    r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,6,num,1] 
+                                    r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) #[?,?,6,num]
+
+                            y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
                         x = _residual_fn(x, l1, 1.0 - params.residual_dropout)
                         x = _residual_fn(x, l2, 1.0 - params.residual_dropout)
                         x = _residual_fn(x, y, 1.0 - params.residual_dropout)
@@ -166,12 +288,73 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     l4 = x
                 elif layer == 5:
                     with tf.variable_scope("feed_forward_5"):
-                        y = _ffn_layer_combine(
-                            _layer_process(tf.concat([l3, l4, x], axis = 2), params.layer_preprocess),
-                            params.filter_size,
-                            params.hidden_size,
-                            1.0 - 1*params.relu_dropout,
-                        )
+                        with tf.variable_scope("dynamic_routing"):
+                            num_capsules = 512
+                            activation_in = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, 1])
+
+                            vote_in = _ffn_layer(
+                                _layer_process(tf.concat([l3, l4, x], axis = 2), params.layer_preprocess),
+                                , params.layer_preprocess),
+                                3*params.hidden_size,
+                                3*params.hidden_size,
+                                1.0 - params.relu_dropout,
+                            )
+
+                            vote_in = tf.reshape(vote_in, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, int(params.hidden_size/num_capsules)])
+
+                            r = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) / num_capsules
+
+                            initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
+                            beta_v = tf.get_variable(
+                                      name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
+                                      initializer=initializer
+                                    )
+                            beta_a = tf.get_variable(
+                                      name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
+                                      initializer=initializer
+                                    )
+
+                            routing_iter = 3
+                            epsilon = 1e-9
+
+                            it_min = 1.0
+                            it_max = min(routing_iter, 3.0)
+                            #activation_in [?, ?, 6, 1], vote_in [?, ?, 6, num, 512], r [?, ?, 6, num]
+                            # beta_v [1, 1, 1, num, 1] beta_a [1, 1, 1, num, 1]
+
+                            for i in range(routing_iter):
+                                #M step
+                                inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
+
+                                r = r * (activation_in + epsilon)
+                                r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) #[?,?,6,num]
+                                r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, num]
+                                r_sum = tf.reshape(r_sum, [tf.shape(x)[0], tf.shape(x)[1], 1, num_capsules, 1]) #[?, ?, 1, num, 1]
+
+                                o_mean = tf.reduce_sum( tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+                                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+
+                                o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, num, 512] * [?, ?, 1, num, 1] = [?, ?, 1, num, 512]
+
+                                o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
+                                
+                                #unnecessary
+                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+
+                                if i < routing_iter - 1:
+                                    #E step
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
+                                    o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
+                                    zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
+                                    r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,6,num,1] 
+                                    r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) #[?,?,6,num]
+                            y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
+
                         x = _residual_fn(x, l3, 1.0 - params.residual_dropout)
                         x = _residual_fn(x, l4, 1.0 - params.residual_dropout)
                         x = _residual_fn(x, y, 1.0 - params.residual_dropout)
@@ -179,98 +362,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                     l5 = x
                 
 
-            if layer == 1:
-                output_per_layer = tf.expand_dims(x, 2) #[batch, length, 1, hidden]
-            elif layer == 3 or layer == 5:
-                output_per_layer = tf.concat([output_per_layer, tf.expand_dims(x, 2)], axis = 2)
-
-
-        def squash(vector):
-            epsilon = 1e-9
-            vec_squared_norm = tf.reduce_sum(tf.square(vector), -1, keep_dims=True)
-            scalar_factor = vec_squared_norm / (1 + vec_squared_norm) / tf.sqrt(vec_squared_norm + epsilon)
-            vec_squashed = scalar_factor * vector  # element-wise
-            return(vec_squashed)
-
-        with tf.variable_scope("dynamic_routing"):
-            num_capsules = 512
-            #activation_in = _ffn_layer_sigmoid(
-            #    _layer_process(tf.reshape(output_per_layer, [tf.shape(output_per_layer)[0], tf.shape(output_per_layer)[1], params.hidden_size * 3])
-            #    , params.layer_preprocess),
-            #    1*params.hidden_size,
-            #    3,
-            #    1.0 - params.relu_dropout,
-            #)
-            #activation_in = tf.reshape(activation_in, [tf.shape(x)[0], tf.shape(x)[1], 3, 1])
-            activation_in = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, 1])
-
-            vote_in = _ffn_layer(
-                _layer_process(tf.reshape(output_per_layer, [tf.shape(output_per_layer)[0], tf.shape(output_per_layer)[1], params.hidden_size * 3])
-                , params.layer_preprocess),
-                3*params.hidden_size,
-                3*params.hidden_size,
-                1.0 - params.relu_dropout,
-            )
-            
-
-            vote_in = tf.reshape(vote_in, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, int(params.hidden_size/num_capsules)])
-
-            r = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) / num_capsules
-
-            initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
-            beta_v = tf.get_variable(
-                      name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
-                      initializer=initializer
-                    )
-            beta_a = tf.get_variable(
-                      name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
-                      initializer=initializer
-                    )
-
-            routing_iter = 3
-            epsilon = 1e-9
-
-            it_min = 1.0
-            it_max = min(routing_iter, 3.0)
-
-            #activation_in [?, ?, 6, 1], vote_in [?, ?, 6, num, 512], r [?, ?, 6, num]
-            # beta_v [1, 1, 1, num, 1] beta_a [1, 1, 1, num, 1]
-
-            for i in range(routing_iter):
-                #M step
-                inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
-
-                r = r * (activation_in + epsilon)
-                r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) #[?,?,6,num]
-                r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, num]
-                r_sum = tf.reshape(r_sum, [tf.shape(x)[0], tf.shape(x)[1], 1, num_capsules, 1]) #[?, ?, 1, num, 1]
-
-                o_mean = tf.reduce_sum( tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, num, 512]
-                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
-
-                o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, num, 512] * [?, ?, 1, num, 1] = [?, ?, 1, num, 512]
-
-                o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
-                
-                #unnecessary
-                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
-                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
-                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
-
-                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
-
-                if i < routing_iter - 1:
-                    #E step
-                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
-                    o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
-                    o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
-                    zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
-                    r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,6,num,1] 
-                    r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) #[?,?,6,num]
-
-            v = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
-
-        outputs = _layer_process(v, params.layer_preprocess)
+        outputs = _layer_process(x, params.layer_preprocess)
 
         return outputs
 
@@ -337,12 +429,73 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     l0 = x
                 elif layer == 1:
                     with tf.variable_scope("feed_forward_1"):
-                        y = _ffn_layer_combine(
-                            _layer_process(tf.concat([l0, x], axis = 2), params.layer_preprocess),
-                            params.filter_size,
-                            params.hidden_size,
-                            1.0 - 1*params.relu_dropout,
-                        )
+                        with tf.variable_scope("dynamic_routing"):
+                            num_capsules = 512
+                            activation_in = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 2, 1])
+
+                            vote_in = _ffn_layer(
+                                _layer_process(tf.concat([l0, x], axis = 2), params.layer_preprocess),
+                                , params.layer_preprocess),
+                                2*params.hidden_size,
+                                2*params.hidden_size,
+                                1.0 - params.relu_dropout,
+                            )
+
+                            vote_in = tf.reshape(vote_in, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules, int(params.hidden_size/num_capsules)])
+
+                            r = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules]) / num_capsules
+
+                            initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
+                            beta_v = tf.get_variable(
+                                      name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
+                                      initializer=initializer
+                                    )
+                            beta_a = tf.get_variable(
+                                      name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
+                                      initializer=initializer
+                                    )
+
+                            routing_iter = 3
+                            epsilon = 1e-9
+
+                            it_min = 1.0
+                            it_max = min(routing_iter, 3.0)
+                            #activation_in [?, ?, 6, 1], vote_in [?, ?, 6, num, 512], r [?, ?, 6, num]
+                            # beta_v [1, 1, 1, num, 1] beta_a [1, 1, 1, num, 1]
+
+                            for i in range(routing_iter):
+                                #M step
+                                inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
+
+                                r = r * (activation_in + epsilon)
+                                r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules, 1]) #[?,?,6,num]
+                                r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, num]
+                                r_sum = tf.reshape(r_sum, [tf.shape(x)[0], tf.shape(x)[1], 1, num_capsules, 1]) #[?, ?, 1, num, 1]
+
+                                o_mean = tf.reduce_sum( tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules, 1]) * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+                                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+
+                                o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, num, 512] * [?, ?, 1, num, 1] = [?, ?, 1, num, 512]
+
+                                o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
+                                
+                                #unnecessary
+                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+
+                                if i < routing_iter - 1:
+                                    #E step
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
+                                    o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
+                                    zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
+                                    r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,6,num,1] 
+                                    r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules]) #[?,?,6,num]
+
+                            y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
                         x = _residual_fn(x, l0, 1.0 - params.residual_dropout)
                         x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                         x = _layer_process(x, params.layer_postprocess)
@@ -351,12 +504,73 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     l2 = x
                 elif layer == 3:
                     with tf.variable_scope("feed_forward_3"):
-                        y = _ffn_layer_combine(
-                            _layer_process(tf.concat([l1, l2, x], axis = 2), params.layer_preprocess),
-                            params.filter_size,
-                            params.hidden_size,
-                            1.0 - 1*params.relu_dropout,
-                        )
+                        with tf.variable_scope("dynamic_routing"):
+                            num_capsules = 512
+                            activation_in = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, 1])
+
+                            vote_in = _ffn_layer(
+                                _layer_process(tf.concat([l1, l2, x], axis = 2), params.layer_preprocess),
+                                , params.layer_preprocess),
+                                3*params.hidden_size,
+                                3*params.hidden_size,
+                                1.0 - params.relu_dropout,
+                            )
+
+                            vote_in = tf.reshape(vote_in, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, int(params.hidden_size/num_capsules)])
+
+                            r = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) / num_capsules
+
+                            initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
+                            beta_v = tf.get_variable(
+                                      name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
+                                      initializer=initializer
+                                    )
+                            beta_a = tf.get_variable(
+                                      name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
+                                      initializer=initializer
+                                    )
+
+                            routing_iter = 3
+                            epsilon = 1e-9
+
+                            it_min = 1.0
+                            it_max = min(routing_iter, 3.0)
+                            #activation_in [?, ?, 6, 1], vote_in [?, ?, 6, num, 512], r [?, ?, 6, num]
+                            # beta_v [1, 1, 1, num, 1] beta_a [1, 1, 1, num, 1]
+
+                            for i in range(routing_iter):
+                                #M step
+                                inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
+
+                                r = r * (activation_in + epsilon)
+                                r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) #[?,?,6,num]
+                                r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, num]
+                                r_sum = tf.reshape(r_sum, [tf.shape(x)[0], tf.shape(x)[1], 1, num_capsules, 1]) #[?, ?, 1, num, 1]
+
+                                o_mean = tf.reduce_sum( tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+                                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+
+                                o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, num, 512] * [?, ?, 1, num, 1] = [?, ?, 1, num, 512]
+
+                                o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
+                                
+                                #unnecessary
+                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+
+                                if i < routing_iter - 1:
+                                    #E step
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
+                                    o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
+                                    zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
+                                    r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,6,num,1] 
+                                    r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) #[?,?,6,num]
+
+                            y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
                         x = _residual_fn(x, l1, 1.0 - params.residual_dropout)
                         x = _residual_fn(x, l2, 1.0 - params.residual_dropout)
                         x = _residual_fn(x, y, 1.0 - params.residual_dropout)
@@ -366,111 +580,80 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                     l4 = x
                 elif layer == 5:
                     with tf.variable_scope("feed_forward_5"):
-                        y = _ffn_layer_combine(
-                            _layer_process(tf.concat([l3, l4, x], axis = 2), params.layer_preprocess),
-                            params.filter_size,
-                            params.hidden_size,
-                            1.0 - 1*params.relu_dropout,
-                        )
+                        with tf.variable_scope("dynamic_routing"):
+                            num_capsules = 512
+                            activation_in = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, 1])
+
+                            vote_in = _ffn_layer(
+                                _layer_process(tf.concat([l3, l4, x], axis = 2), params.layer_preprocess),
+                                , params.layer_preprocess),
+                                3*params.hidden_size,
+                                3*params.hidden_size,
+                                1.0 - params.relu_dropout,
+                            )
+
+                            vote_in = tf.reshape(vote_in, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, int(params.hidden_size/num_capsules)])
+
+                            r = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) / num_capsules
+
+                            initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
+                            beta_v = tf.get_variable(
+                                      name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
+                                      initializer=initializer
+                                    )
+                            beta_a = tf.get_variable(
+                                      name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
+                                      initializer=initializer
+                                    )
+
+                            routing_iter = 3
+                            epsilon = 1e-9
+
+                            it_min = 1.0
+                            it_max = min(routing_iter, 3.0)
+                            #activation_in [?, ?, 6, 1], vote_in [?, ?, 6, num, 512], r [?, ?, 6, num]
+                            # beta_v [1, 1, 1, num, 1] beta_a [1, 1, 1, num, 1]
+
+                            for i in range(routing_iter):
+                                #M step
+                                inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
+
+                                r = r * (activation_in + epsilon)
+                                r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) #[?,?,6,num]
+                                r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, num]
+                                r_sum = tf.reshape(r_sum, [tf.shape(x)[0], tf.shape(x)[1], 1, num_capsules, 1]) #[?, ?, 1, num, 1]
+
+                                o_mean = tf.reduce_sum( tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+                                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+
+                                o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, num, 512] * [?, ?, 1, num, 1] = [?, ?, 1, num, 512]
+
+                                o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
+                                
+                                #unnecessary
+                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+
+                                if i < routing_iter - 1:
+                                    #E step
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
+                                    o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
+                                    zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
+                                    r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,6,num,1] 
+                                    r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) #[?,?,6,num]
+                            y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
+
                         x = _residual_fn(x, l3, 1.0 - params.residual_dropout)
                         x = _residual_fn(x, l4, 1.0 - params.residual_dropout)
                         x = _residual_fn(x, y, 1.0 - params.residual_dropout)
                         x = _layer_process(x, params.layer_postprocess)
                     l5 = x
-                
 
-            if layer == 1:
-                output_per_layer = tf.expand_dims(x, 2) #[batch, length, 1, hidden]
-            elif layer == 3 or layer == 5:
-                output_per_layer = tf.concat([output_per_layer, tf.expand_dims(x, 2)], axis = 2)
-
-
-        def squash(vector):
-            epsilon = 1e-9
-            vec_squared_norm = tf.reduce_sum(tf.square(vector), -1, keep_dims=True)
-            scalar_factor = vec_squared_norm / (1 + vec_squared_norm) / tf.sqrt(vec_squared_norm + epsilon)
-            vec_squashed = scalar_factor * vector  # element-wise
-            return(vec_squashed)
-
-        with tf.variable_scope("dynamic_routing"):
-            num_capsules = 512
-            #activation_in = _ffn_layer_sigmoid(
-            #    _layer_process(tf.reshape(output_per_layer, [tf.shape(output_per_layer)[0], tf.shape(output_per_layer)[1], params.hidden_size * 3])
-            #    , params.layer_preprocess),
-            #    1*params.hidden_size,
-            #    3,
-            #    1.0 - params.relu_dropout,
-            #)
-            #activation_in = tf.reshape(activation_in, [tf.shape(x)[0], tf.shape(x)[1], 3, 1])
-            activation_in = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, 1])
-
-            vote_in = _ffn_layer(
-                _layer_process(tf.reshape(output_per_layer, [tf.shape(output_per_layer)[0], tf.shape(output_per_layer)[1], params.hidden_size * 3])
-                , params.layer_preprocess),
-                3*params.hidden_size,
-                3*params.hidden_size,
-                1.0 - params.relu_dropout,
-            )
-            
-
-            vote_in = tf.reshape(vote_in, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, int(params.hidden_size/num_capsules)])
-
-            r = tf.ones([tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) / num_capsules
-
-            initializer = tf.random_normal_initializer(0.0, params.hidden_size ** -0.5)
-            beta_v = tf.get_variable(
-                      name='beta_v', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32, 
-                      initializer=initializer
-                    )
-            beta_a = tf.get_variable(
-                      name='beta_a', shape=[1, 1, 1, num_capsules, 1], dtype=tf.float32,
-                      initializer=initializer
-                    )
-
-            routing_iter = 3
-            epsilon = 1e-9
-
-            it_min = 1.0
-            it_max = min(routing_iter, 3.0)
-
-            #activation_in [?, ?, 6, 1], vote_in [?, ?, 6, num, 512], r [?, ?, 6, num]
-            # beta_v [1, 1, 1, num, 1] beta_a [1, 1, 1, num, 1]
-
-            for i in range(routing_iter):
-                #M step
-                inverse_temperature = it_min + (it_max - it_min) * i / max(1.0, routing_iter - 1.0)
-
-                r = r * (activation_in + epsilon)
-                r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) #[?,?,6,num]
-                r_sum = tf.reduce_sum(r, axis = 2, keep_dims = True) #[?, ?, 1, num]
-                r_sum = tf.reshape(r_sum, [tf.shape(x)[0], tf.shape(x)[1], 1, num_capsules, 1]) #[?, ?, 1, num, 1]
-
-                o_mean = tf.reduce_sum( tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules, 1]) * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, num, 512]
-                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
-
-                o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, num, 512] * [?, ?, 1, num, 1] = [?, ?, 1, num, 512]
-
-                o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
-                
-                #unnecessary
-                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
-                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
-                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
-
-                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
-
-                if i < routing_iter - 1:
-                    #E step
-                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
-                    o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
-                    o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
-                    zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
-                    r = tf.nn.softmax(zz, dim = 3) + epsilon#[?,?,6,num,1] 
-                    r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) #[?,?,6,num]
-
-            v = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
-
-        outputs = _layer_process(v, params.layer_preprocess)
+        outputs = _layer_process(x, params.layer_preprocess)
 
         if state is not None:
             return outputs, next_state
