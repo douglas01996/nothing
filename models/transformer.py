@@ -164,7 +164,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                     )
 
                             routing_iter = 3
-                            epsilon = 1e-9
+                            epsilon = 1e-6
 
                             it_min = 1.0
                             it_max = min(routing_iter, 3.0)
@@ -181,7 +181,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                 r_sum = tf.reshape(r_sum, [tf.shape(x)[0], tf.shape(x)[1], 1, num_capsules, 1]) #[?, ?, 1, num, 1]
 
                                 o_mean = tf.reduce_sum( tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules, 1]) * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, num, 512]
-                                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+                                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean + epsilon), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
 
                                 o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, num, 512] * [?, ?, 1, num, 1] = [?, ?, 1, num, 512]
 
@@ -192,7 +192,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                 o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
                                 o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
-                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost) + epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
@@ -239,7 +239,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                     )
 
                             routing_iter = 3
-                            epsilon = 1e-9
+                            epsilon = 1e-6
 
                             it_min = 1.0
                             it_max = min(routing_iter, 3.0)
@@ -267,7 +267,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                 o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
                                 o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
-                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)+epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
@@ -315,7 +315,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                     )
 
                             routing_iter = 3
-                            epsilon = 1e-9
+                            epsilon = 1e-6
 
                             it_min = 1.0
                             it_max = min(routing_iter, 3.0)
@@ -343,7 +343,7 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                 o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
                                 o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
-                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)+epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
@@ -456,7 +456,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                     )
 
                             routing_iter = 3
-                            epsilon = 1e-9
+                            epsilon = 1e-6
 
                             it_min = 1.0
                             it_max = min(routing_iter, 3.0)
@@ -484,7 +484,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                 o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
                                 o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
-                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)+epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
@@ -531,7 +531,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                     )
 
                             routing_iter = 3
-                            epsilon = 1e-9
+                            epsilon = 1e-6
 
                             it_min = 1.0
                             it_max = min(routing_iter, 3.0)
@@ -559,7 +559,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                 o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
                                 o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
-                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)+epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
@@ -607,7 +607,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                     )
 
                             routing_iter = 3
-                            epsilon = 1e-9
+                            epsilon = 1e-6
 
                             it_min = 1.0
                             it_max = min(routing_iter, 3.0)
@@ -635,7 +635,7 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                 o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
                                 o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
-                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)) #[?, ?, 1, num, 1]
+                                activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)+epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
