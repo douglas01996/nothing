@@ -188,15 +188,15 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                 o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
                                 
                                 #unnecessary
-                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
-                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
-                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+                                #o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                #o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                #o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
                                 activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost) + epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
-                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv_epsilon), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
                                     o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
                                     o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
                                     zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
@@ -204,9 +204,9 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                     r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules]) #[?,?,6,num]
 
                             y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
-                        x = _residual_fn(x, l0, 1.0 - params.residual_dropout)
-                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
-                        x = _layer_process(x, params.layer_postprocess)
+                        #x = _residual_fn(x, l0, 1.0 - params.residual_dropout)
+                        #x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(y, params.layer_postprocess)
                     l1 = x
                 elif layer == 2:
                     l2 = x
@@ -263,15 +263,15 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                 o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
                                 
                                 #unnecessary
-                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
-                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
-                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+                                #o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                #o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                #o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
                                 activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)+epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
-                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv + epsilon), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
                                     o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
                                     o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
                                     zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
@@ -279,10 +279,10 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                     r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) #[?,?,6,num]
 
                             y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
-                        x = _residual_fn(x, l1, 1.0 - params.residual_dropout)
-                        x = _residual_fn(x, l2, 1.0 - params.residual_dropout)
-                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
-                        x = _layer_process(x, params.layer_postprocess)
+                        #x = _residual_fn(x, l1, 1.0 - params.residual_dropout)
+                        #x = _residual_fn(x, l2, 1.0 - params.residual_dropout)
+                        #x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(y, params.layer_postprocess)
                     l3 = x
                 elif layer == 4:
                     l4 = x
@@ -339,15 +339,15 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                 o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
                                 
                                 #unnecessary
-                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
-                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
-                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+                                #o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                #o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                #o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
                                 activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)+epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
-                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv+epsilon), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
                                     o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
                                     o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
                                     zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
@@ -355,10 +355,10 @@ def transformer_encoder(inputs, bias, params, dtype=None, scope=None):
                                     r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) #[?,?,6,num]
                             y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
 
-                        x = _residual_fn(x, l3, 1.0 - params.residual_dropout)
-                        x = _residual_fn(x, l4, 1.0 - params.residual_dropout)
-                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
-                        x = _layer_process(x, params.layer_postprocess)
+                        #x = _residual_fn(x, l3, 1.0 - params.residual_dropout)
+                        #x = _residual_fn(x, l4, 1.0 - params.residual_dropout)
+                        #x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(y, params.layer_postprocess)
                     l5 = x
                 
 
@@ -473,22 +473,22 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                 r_sum = tf.reshape(r_sum, [tf.shape(x)[0], tf.shape(x)[1], 1, num_capsules, 1]) #[?, ?, 1, num, 1]
 
                                 o_mean = tf.reduce_sum( tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules, 1]) * vote_in, axis = 2, keep_dims = True) / (r_sum + epsilon) #[?, ?, 1, num, 512]
-                                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
+                                o_stdv = (tf.reduce_sum(r * tf.square(vote_in - o_mean + epsilon), axis = 2, keep_dims = True)) / (r_sum + epsilon) #[?, ?, 1, num, 512]
 
                                 o_cost_h = (beta_v + 0.5 * tf.log(o_stdv + epsilon)) * r_sum # [?, ?, 1, num, 512] * [?, ?, 1, num, 1] = [?, ?, 1, num, 512]
 
                                 o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
                                 
                                 #unnecessary
-                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
-                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
-                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+                                #o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                #o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                #o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
                                 activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)+epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
-                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv+epsilon), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
                                     o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
                                     o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
                                     zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
@@ -496,9 +496,9 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                     r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 2, num_capsules]) #[?,?,6,num]
 
                             y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
-                        x = _residual_fn(x, l0, 1.0 - params.residual_dropout)
-                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
-                        x = _layer_process(x, params.layer_postprocess)
+                        #x = _residual_fn(x, l0, 1.0 - params.residual_dropout)
+                        #x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(y, params.layer_postprocess)
                     l1 = x
                 elif layer == 2:
                     l2 = x
@@ -555,9 +555,9 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                 o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
                                 
                                 #unnecessary
-                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
-                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
-                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+                                #o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                #o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                #o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
                                 activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)+epsilon) #[?, ?, 1, num, 1]
 
@@ -571,10 +571,10 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                     r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) #[?,?,6,num]
 
                             y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
-                        x = _residual_fn(x, l1, 1.0 - params.residual_dropout)
-                        x = _residual_fn(x, l2, 1.0 - params.residual_dropout)
-                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
-                        x = _layer_process(x, params.layer_postprocess)
+                        #x = _residual_fn(x, l1, 1.0 - params.residual_dropout)
+                        #x = _residual_fn(x, l2, 1.0 - params.residual_dropout)
+                        #x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(y, params.layer_postprocess)
                     l3 = x
                 elif layer == 4:
                     l4 = x
@@ -631,15 +631,15 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                 o_cost = tf.reduce_sum(o_cost_h, axis = -1, keep_dims = True) #[?, ?, 1, num, 1]
                                 
                                 #unnecessary
-                                o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
-                                o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
-                                o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
+                                #o_cost_mean = tf.reduce_mean(o_cost, axis = -2, keep_dims = True) #[?, ?, 1, 1, 1]
+                                #o_cost_stdv = tf.sqrt(tf.reduce_sum(tf.square(o_cost-o_cost_mean), axis = -2, keep_dims=True)/num_capsules + epsilon)
+                                #o_cost = (o_cost - o_cost_mean)/ (o_cost_stdv + epsilon)
 
                                 activation_out = tf.sigmoid(inverse_temperature * (beta_a - o_cost)+epsilon) #[?, ?, 1, num, 1]
 
                                 if i < routing_iter - 1:
                                     #E step
-                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
+                                    o_p_unit0 = - tf.reduce_sum(tf.square(vote_in - o_mean) / (2*o_stdv+epsilon), axis = -1, keep_dims=True) #[?, ?, 6, num, 1]
                                     o_p_unit2 = - 0.5 * tf.reduce_sum(tf.log(o_stdv + epsilon), axis = -1, keep_dims=True) #[?,?,1,num,1]
                                     o_p = o_p_unit0 + o_p_unit2 #[?, ?, 6, num, 1]
                                     zz = tf.log(activation_out + epsilon) + o_p #[?,?,6,num,1]
@@ -647,10 +647,10 @@ def transformer_decoder(inputs, memory, bias, mem_bias, params, state=None,
                                     r = tf.reshape(r, [tf.shape(x)[0], tf.shape(x)[1], 3, num_capsules]) #[?,?,6,num]
                             y = tf.reshape(activation_out*o_mean, [tf.shape(x)[0], tf.shape(x)[1], params.hidden_size])
 
-                        x = _residual_fn(x, l3, 1.0 - params.residual_dropout)
-                        x = _residual_fn(x, l4, 1.0 - params.residual_dropout)
-                        x = _residual_fn(x, y, 1.0 - params.residual_dropout)
-                        x = _layer_process(x, params.layer_postprocess)
+                        #x = _residual_fn(x, l3, 1.0 - params.residual_dropout)
+                        #x = _residual_fn(x, l4, 1.0 - params.residual_dropout)
+                        #x = _residual_fn(x, y, 1.0 - params.residual_dropout)
+                        x = _layer_process(y, params.layer_postprocess)
                     l5 = x
 
         outputs = _layer_process(x, params.layer_preprocess)
